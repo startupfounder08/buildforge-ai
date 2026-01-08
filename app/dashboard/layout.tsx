@@ -1,0 +1,123 @@
+import { AppSidebar } from "@/components/dashboard/AppSidebar"
+import {
+    SidebarProvider,
+    SidebarTrigger,
+} from "@/components/ui/sidebar"
+import { Separator } from "@/components/ui/separator"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Bell, Search, Command, LogOut, User as UserIcon, Settings } from "lucide-react"
+import { createClient } from "@/lib/supabase/server"
+import { redirect } from "next/navigation"
+import { signout } from "@/app/auth/actions"
+
+export default async function DashboardLayout({
+    children,
+}: {
+    children: React.ReactNode
+}) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        redirect('/auth/login')
+    }
+
+    return (
+        <SidebarProvider className="h-screen w-full overflow-hidden">
+            <AppSidebar />
+            <main className="flex-1 flex flex-col h-full overflow-y-auto bg-background">
+                <header className="flex h-16 shrink-0 items-center gap-4 px-4 border-b border-border sticky top-0 bg-background/80 backdrop-blur-md z-30 font-sans">
+                    <div className="flex items-center gap-2">
+                        {/* Trigger for mobile */}
+                        <div className="md:hidden">
+                            <SidebarTrigger className="-ml-1" />
+                        </div>
+                        <Separator orientation="vertical" className="mr-2 h-4 md:hidden" />
+
+                        <div className="flex items-center gap-2">
+                            {/* Optional: Add Logo here if not in Sidebar */}
+                        </div>
+                    </div>
+
+                    {/* Mobile Logo */}
+                    <div className="flex items-center gap-2 text-primary font-bold md:hidden">
+                        <Command className="h-6 w-6" />
+                        <span>BuildForge</span>
+                    </div>
+
+                    {/* Search Bar - Center/Left aligned */}
+                    <div className="flex-1 max-w-xl ml-4 hidden md:block">
+                        <div className="relative">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                type="search"
+                                placeholder="Search projects, documents..."
+                                className="pl-8 bg-card border-none ring-offset-background focus-visible:ring-1 focus-visible:ring-ring"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="ml-auto flex items-center gap-2">
+                        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                            <Bell className="h-5 w-5" />
+                        </Button>
+
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                                    <Avatar className="h-8 w-8">
+                                        <AvatarImage src="/avatars/01.png" alt="@user" />
+                                        <AvatarFallback className="bg-primary text-primary-foreground">
+                                            {user.email?.charAt(0).toUpperCase()}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-56" align="end" forceMount>
+                                <DropdownMenuLabel className="font-normal">
+                                    <div className="flex flex-col space-y-1">
+                                        <p className="text-sm font-medium leading-none">User</p>
+                                        <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+                                    </div>
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem asChild>
+                                    <a href="/dashboard/account" className="cursor-pointer flex items-center">
+                                        <UserIcon className="mr-2 h-4 w-4" /> Profile
+                                    </a>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <a href="/dashboard/settings" className="cursor-pointer flex items-center">
+                                        <Settings className="mr-2 h-4 w-4" /> Settings
+                                    </a>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <form action={signout}>
+                                    <button className="w-full text-left">
+                                        <DropdownMenuItem className="text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer">
+                                            <LogOut className="mr-2 h-4 w-4" /> Log out
+                                        </DropdownMenuItem>
+                                    </button>
+                                </form>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </header>
+                <div className="flex flex-1 flex-col gap-4 p-4 md:p-8">
+                    {children}
+                </div>
+            </main>
+        </SidebarProvider>
+    )
+}
+
