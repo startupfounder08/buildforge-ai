@@ -116,7 +116,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                             asChild
                                             isActive={isActive}
                                             tooltip={item.title}
-                                            className="font-medium hover:bg-accent hover:text-accent-foreground data-[active=true]:bg-primary/10 data-[active=true]:text-primary transition-all duration-200"
+                                            className="font-medium hover:bg-accent hover:text-accent-foreground data-[active=true]:bg-primary data-[active=true]:text-primary-foreground transition-all duration-200"
                                         >
                                             <Link href={item.url}>
                                                 <item.icon className="h-4 w-4" />

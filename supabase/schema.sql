@@ -61,6 +61,8 @@ create table if not exists public.projects (
   location text,
   description text,
   status text default 'planning', -- 'planning', 'active', 'completed'
+  due_date timestamptz,
+  notes text,
   created_at timestamptz default now()
 );
 

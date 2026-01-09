@@ -1,18 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, use } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
-import { FileText, Hammer, HardHat, ScrollText, ArrowRight, Loader2, Download } from 'lucide-react'
+import { FileText, Hammer, HardHat, ScrollText, ArrowRight, Loader2, Download, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
+import Link from 'next/link'
 
-export default function GenerateDocPage({ params }: { params: { id: string } }) {
-    const [projectId, setProjectId] = useState(params.id) // params is async in future Next.js, but handle simple for now. Client side params are usually fine if unwrapped.
-    // Actually params in page props are synchronous in Client Components in Next 15 if accessed directly? No, params is a Promise in Next 15 Server Components. In Client Components, use `useParams` hook.
+export default function GenerateDocPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id: projectId } = use(params)
 
     const [step, setStep] = useState(1)
     const [docType, setDocType] = useState<string | null>(null)
@@ -35,7 +35,7 @@ export default function GenerateDocPage({ params }: { params: { id: string } }) 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    projectId, // Logic to get project details server side
+                    projectId,
                     type: docType,
                     // Add form fields here
                 })
@@ -57,9 +57,19 @@ export default function GenerateDocPage({ params }: { params: { id: string } }) 
 
     return (
         <div className="container mx-auto max-w-4xl p-8">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold">Generate Document</h1>
-                <p className="text-muted-foreground">AI-powered generation for official paperwork.</p>
+            <div className="mb-8 flex items-center justify-between">
+                <div>
+                    <div className="flex items-center gap-2 mb-2">
+                        <Link href={`/dashboard/projects/${projectId}`} className="text-muted-foreground hover:text-foreground">
+                            <ArrowLeft className="h-4 w-4" />
+                        </Link>
+                        <h1 className="text-3xl font-bold">Generate Document</h1>
+                    </div>
+                    <p className="text-muted-foreground">AI-powered generation for official paperwork.</p>
+                </div>
+                <Link href={`/dashboard/projects/${projectId}`}>
+                    <Button variant="outline">Back to Project</Button>
+                </Link>
             </div>
 
             <div className="grid gap-8">
