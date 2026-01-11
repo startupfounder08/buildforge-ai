@@ -1,12 +1,16 @@
 import { PDFDocument, StandardFonts, rgb, degrees, PDFPage, PDFFont, Color } from 'pdf-lib'
 
 interface DocumentData {
+    category?: 'permit' | 'safety' | 'contract' | 'bid'
     type: string
     title: string
     permit_number?: string
+    report_number?: string // Safety
     issue_date?: string
+    date_created?: string // Safety
     expiration_date?: string
     status?: string
+
     project_info: {
         name: string
         address: string
@@ -14,6 +18,8 @@ interface DocumentData {
         state?: string
         zip?: string
     }
+
+    // Permit / Contract specific
     owner_info?: {
         name: string
         address?: string
@@ -28,6 +34,25 @@ interface DocumentData {
     conditions?: string[]
     fees?: { description: string; amount: string }[]
     disclaimers?: string[]
+
+    // Safety Specific
+    incident_details?: {
+        date?: string
+        time?: string
+        weather?: string
+        type?: string
+        severity?: string
+        description?: string
+        corrective_actions?: string
+    }
+    reporter_info?: {
+        name: string
+        role?: string
+    }
+    supervisor_info?: {
+        name: string
+    }
+    preventative_measures?: string[]
 }
 
 export async function generateLegalPDF(data: DocumentData, isDraft: boolean = true): Promise<Uint8Array> {
@@ -49,332 +74,512 @@ export async function generateLegalPDF(data: DocumentData, isDraft: boolean = tr
     const fontSizeTitle = 24
     const fontSizeSmall = 8
 
-    // --- MEASUREMENT PHASE (For Vertically Centering Page 1) ---
-    // We need to calculate total height of the "Content Block" to center it.
+    if (data.category === 'safety') {
+        // ==========================================
+        //         SAFETY REPORT GENERATION
+        // ==========================================
 
-    // 1. Header Area (Logo to Divider)
-    // Logo: 60, City/Dept: 40, Title: 18, Subtitle: 12, Divider: 25
-    const headerHeight = 60 + 40 + 18 + 12 + 25
+        const drawSafetyHeader = (currPage: PDFPage, isContinued = false) => {
+            const { width, height } = currPage.getSize()
+            // Warning Stripe (Softer Yellow as requested: #FFC107 - Amber 500 equivalent approx rgb(1, 0.75, 0))
+            currPage.drawRectangle({ x: 0, y: height - 40, width: width, height: 40, color: rgb(1, 0.75, 0.03) })
+            drawCenteredText(currPage, isContinued ? "SAFETY INCIDENT REPORT (Continued)" : "SAFETY INCIDENT REPORT", height - 28, fontBold, 18, rgb(0, 0, 0))
+        }
 
-    // 2. Project Location Row (Dynamic)
-    const addressWidth = (width - 2 * margin) - 310 - 5
-    const addressLines = wrapText(
-        `${data.project_info.address}, ${data.project_info.city || ''} ${data.project_info.zip || ''}`,
-        fontBold,
-        fontSizeBody,
-        addressWidth
-    )
-    const row1H = Math.max(45, 45 + (addressLines.length - 1) * 14)
-
-    // 3. Permittee Row (Fixed)
-    const row2H = 65
-
-    // 4. Issuance Bar (Fixed + Spacing)
-    const barH = 30
-
-    // 5. Scope (Fixed Box + Spacing)
-    const scopeH = 45
-
-    // 6. Fees (Dynamic)
-    let feesHeight = 0
-    if (data.fees && data.fees.length > 0) {
-        const feeRowH = 22
-        // Header (10px title + 10px gap + feeRowH) + Body (feeRowH * N) + Total (feeRowH) + Spacing (25px bottom)
-        feesHeight = 10 + 10 + feeRowH + (feeRowH * data.fees.length) + feeRowH + 25
-    }
-
-    // Spacing Gaps (Reverted to standard ~25px)
-    const gap = 25
-    const totalContentHeight = headerHeight + row1H + row2H + gap + barH + gap + scopeH + gap + feesHeight
-
-    // Calculate Centered Start Y
-    // Available vertical space is height - 2*margin. 
-    // If content is smaller than available, push down.
-    // We stick to 'margin' as the absolute ceiling.
-    const availableH = height - (2 * margin)
-    let startY = height - margin
-
-    if (totalContentHeight < availableH) {
-        const extraSpace = availableH - totalContentHeight
-        startY = height - margin - (extraSpace / 2)
-    }
-
-    // --- DRAWING PHASE ---
-    yCursor = startY
-
-    // --- HEADER SECTION ---
-    // Hexagon Logo
-    page.drawSvgPath('M 30 0 L 55 15 L 55 45 L 30 60 L 5 45 L 5 15 Z', {
-        x: margin,
-        y: yCursor,
-        color: rgb(0, 0, 0),
-        scale: 0.8,
-    })
-
-    // Permit Box (Top Right)
-    if (data.permit_number) {
-        const boxW = 160
-        const boxH = 50
-        const boxX = width - margin - boxW
-        const boxY = yCursor + 5
-
-        page.drawRectangle({
-            x: boxX, y: boxY - boxH, width: boxW, height: boxH,
-            color: rgb(1, 0.9, 0.9), // Light Red
-            borderColor: rgb(0.8, 0, 0), borderWidth: 2
-        })
-        page.drawText("OFFICIAL PERMIT #", {
-            x: boxX + 10, y: boxY - 15, size: 8, font: fontBold, color: rgb(0.8, 0, 0)
-        })
-        page.drawText(data.permit_number, {
-            x: boxX + 10, y: boxY - 38, size: 16, font: fontBold, color: rgb(0, 0, 0)
-        })
-    }
-
-    yCursor -= 60
-
-    // City Name
-    const cityTitle = (data.project_info.city || "CITY OF METROPOLIS").toUpperCase() + ", TX"
-    const deptTitle = "DEPARTMENT OF BUILDING SAFETY & INSPECTION"
-
-    drawCenteredText(page, cityTitle, yCursor, fontBold, 16)
-    drawCenteredText(page, deptTitle, yCursor - 18, fontRegular, 9)
-    yCursor -= 40
-
-    // Title
-    drawCenteredText(page, "BUILDING PERMIT", yCursor, fontBold, fontSizeTitle)
-    yCursor -= 18
-    drawCenteredText(page, "Issued pursuant to the Building Code of Metropolis", yCursor, fontSerif, 10, rgb(0.3, 0.3, 0.3))
-    yCursor -= 12
-
-    // Divider
-    page.drawLine({ start: { x: margin, y: yCursor }, end: { x: width - margin, y: yCursor }, thickness: 2, color: rgb(0, 0, 0) })
-    yCursor -= 25
-
-    // --- MASTER GRID ---
-    const gridTopY = yCursor
-    const gridCol1W = (width - 2 * margin) * 0.5
-    const gridCol2W = (width - 2 * margin) * 0.5
-
-    // Row 1: Project Location (Dynamic Height for Address)
-    drawGridBox(page, margin, gridTopY - row1H, width - 2 * margin, row1H, "PROJECT LOCATION", [
-        { label: "Project Name:", value: data.project_info.name, xOffset: 5 },
-        { label: "Full Address:", value: addressLines.join('\n'), xOffset: 240, valueXOffset: 310 }
-    ], fontBold, fontRegular, fontSizeBody)
-
-    // Row 2: Permittee & Contractor
-    const row2Y = gridTopY - row1H
-    drawGridBox(page, margin, row2Y - row2H, gridCol1W, row2H, "PERMITTEE / OWNER", [
-        { label: "Name:", value: data.owner_info?.name || "N/A", xOffset: 5, yOffset: 0 },
-        { label: "Address:", value: data.owner_info?.address || "N/A", xOffset: 5, yOffset: 22 },
-    ], fontBold, fontRegular, fontSizeBody)
-
-    drawGridBox(page, margin + gridCol1W, row2Y - row2H, gridCol2W, row2H, "LICENSED CONTRACTOR", [
-        { label: "Company:", value: data.contractor_info?.name || "N/A", xOffset: 5, yOffset: 0 },
-        { label: "License #:", value: data.contractor_info?.license || "N/A", xOffset: 5, yOffset: 22 },
-    ], fontBold, fontRegular, fontSizeBody)
-
-    yCursor = row2Y - row2H - gap
-
-    // --- ISSUANCE DETAILS (Bar) ---
-    page.drawRectangle({ x: margin, y: yCursor - barH, width: width - 2 * margin, height: barH, color: rgb(0.9, 0.9, 0.9), borderColor: rgb(0, 0, 0), borderWidth: 1 })
-
-    const barColW = (width - 2 * margin) / 3
-    drawLabelValueSimple(page, "DATE ISSUED", data.issue_date || "Pending", margin + 10, yCursor - 18, fontBold, fontRegular)
-    drawLabelValueSimple(page, "EXPIRATION DATE", data.expiration_date || "N/A", margin + barColW + 10, yCursor - 18, fontBold, fontRegular)
-    drawLabelValueSimple(page, "STATUS", (data.status || "DRAFT").toUpperCase(), margin + 2 * barColW + 10, yCursor - 18, fontBold, fontRegular)
-
-    // Vertical Lines
-    page.drawLine({ start: { x: margin + barColW, y: yCursor }, end: { x: margin + barColW, y: yCursor - barH }, thickness: 1 })
-    page.drawLine({ start: { x: margin + 2 * barColW, y: yCursor }, end: { x: margin + 2 * barColW, y: yCursor - barH }, thickness: 1 })
-
-    yCursor -= (barH + gap)
-
-    // --- SCOPE OF WORK (Paragraph Box) ---
-    page.drawText("SCOPE OF WORK", { x: margin, y: yCursor, size: fontSizeHeader, font: fontBold })
-    yCursor -= 12
-    // Box without cell grid, just a border
-    page.drawRectangle({
-        x: margin, y: yCursor - scopeH, width: width - 2 * margin, height: scopeH + 5,
-        borderColor: rgb(0, 0, 0), borderWidth: 1
-    })
-    page.drawText(data.scope_of_work || "N/A", {
-        x: margin + 8, y: yCursor - 12, size: fontSizeBody, font: fontRegular, maxWidth: width - 2 * margin - 16, lineHeight: 16
-    })
-    yCursor -= (scopeH + gap)
-
-    // --- FEE SCHEDULE (70/30 Grid, Bold Total, Thin Gray Borders) ---
-    if (data.fees && data.fees.length > 0) {
-        page.drawText("FEE SCHEDULE", { x: margin, y: yCursor, size: fontSizeHeader, font: fontBold })
-        yCursor -= 10
-
-        const tableW = width - 2 * margin
-        const amountColW = tableW * 0.30
-        const descColW = tableW * 0.70
-        const feeRowH = 22
-
-        // Header
-        page.drawRectangle({ x: margin, y: yCursor - feeRowH, width: tableW, height: feeRowH, color: rgb(0.85, 0.85, 0.85), borderColor: rgb(0.5, 0.5, 0.5), borderWidth: 1 })
-        // Divider
-        page.drawLine({ start: { x: margin + descColW, y: yCursor }, end: { x: margin + descColW, y: yCursor - feeRowH }, thickness: 1, color: rgb(0.5, 0.5, 0.5) })
-
-        page.drawText("DESCRIPTION", { x: margin + 10, y: yCursor - 15, size: 10, font: fontBold })
-        page.drawText("AMOUNT", { x: margin + descColW + 10, y: yCursor - 15, size: 10, font: fontBold })
-        yCursor -= feeRowH
-
-        let total = 0
-        data.fees.forEach(fee => {
-            page.drawRectangle({ x: margin, y: yCursor - feeRowH, width: tableW, height: feeRowH, borderColor: rgb(0.7, 0.7, 0.7), borderWidth: 0.5 })
-            page.drawLine({ start: { x: margin + descColW, y: yCursor }, end: { x: margin + descColW, y: yCursor - feeRowH }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) })
-            // Left/Right Borders explicit (handled by rect but ensuring)
-            page.drawLine({ start: { x: margin, y: yCursor }, end: { x: margin, y: yCursor - feeRowH }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) })
-            page.drawLine({ start: { x: margin + tableW, y: yCursor }, end: { x: margin + tableW, y: yCursor - feeRowH }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) })
-
-            page.drawText(fee.description, { x: margin + 10, y: yCursor - 15, size: fontSizeBody, font: fontRegular })
-
-            const amtText = fee.amount
-            const amtWidth = fontRegular.widthOfTextAtSize(amtText, fontSizeBody)
-            page.drawText(amtText, { x: margin + tableW - amtWidth - 10, y: yCursor - 15, size: fontSizeBody, font: fontRegular })
-
-            const val = parseFloat(fee.amount.replace(/[^0-9.]/g, '')) || 0
-            total += val
-            yCursor -= feeRowH
-        })
-
-        // Total Row (Bold)
-        page.drawRectangle({ x: margin, y: yCursor - feeRowH, width: tableW, height: feeRowH, color: rgb(0.95, 0.95, 0.95), borderColor: rgb(0.5, 0.5, 0.5), borderWidth: 1 })
-        page.drawLine({ start: { x: margin + descColW, y: yCursor }, end: { x: margin + descColW, y: yCursor - feeRowH }, thickness: 1, color: rgb(0.5, 0.5, 0.5) })
-
-        page.drawText("TOTAL ASSESSED FEES", { x: margin + 10, y: yCursor - 15, size: 10, font: fontBold })
-
-        const totalText = `$${total.toFixed(2)}`
-        const totalW = fontBold.widthOfTextAtSize(totalText, 10)
-        page.drawText(totalText, { x: margin + tableW - totalW - 10, y: yCursor - 15, size: 10, font: fontBold }) // Right aligned
-
-        yCursor -= (feeRowH + gap)
-    }
-
-    // --- SPECIAL CONDITIONS (ALWAYS PAGE 2) ---
-    if (data.conditions && data.conditions.length > 0) {
-
-        // Always Break to New Page
-        page = pdfDoc.addPage([612, 792])
-        yCursor = height - margin
-        if (isDraft) {
-            page.drawText("MOCK ONLY - DRAFT - GENERATED BY BUILDFORGE AI", {
-                x: margin - 70, y: 150, size: 72, font: fontBold, color: rgb(1, 0, 0), opacity: 0.12, rotate: degrees(45)
+        const drawWatermark = (currPage: PDFPage) => {
+            const { width, height } = currPage.getSize()
+            const text = "MOCK ONLY - DRAFT - FOR REVIEW PURPOSES ONLY - GENERATED BY BUILDFORGE AI"
+            // Visual placement for 45 deg centered
+            // Start roughly bottom-left to span up-right
+            currPage.drawText(text, {
+                x: margin - 50, y: height / 2 - 200,
+                size: 72,
+                font: fontBold,
+                color: rgb(1, 0, 0),
+                opacity: 0.15,
+                rotate: degrees(45)
             })
         }
 
-        // Config
-        const numberColWidth = 25
-        const contentWidth = width - 2 * margin - numberColWidth - 20
-        const condLineHeight = 16
-        const bottomThreshold = margin + 40
+        // Init Page 1
+        drawSafetyHeader(page)
+        drawWatermark(page)
+        yCursor = height - 80
 
-        page.drawText("SPECIAL CONDITIONS", { x: margin, y: yCursor, size: fontSizeHeader, font: fontBold })
-        yCursor -= 10
+        // Meta Data Row
+        page.drawText(`REPORT #: ${data.report_number || 'N/A'}`, { x: margin, y: yCursor, size: 10, font: fontBold })
+        page.drawText(`DATE FILED: ${data.date_created || 'N/A'}`, { x: width - margin - 150, y: yCursor, size: 10, font: fontBold })
+        yCursor -= 25
 
-        let startY = yCursor
+        // Project Info Box (Dynamic Height)
+        // Deduplicate Address
+        const rawAddr = data.project_info.address || ''
+        const rawCity = data.project_info.city || ''
+        const rawState = data.project_info.state || ''
 
-        for (let i = 0; i < data.conditions.length; i++) {
-            const cond = data.conditions[i]
-            const lines = wrapText(cond, fontRegular, fontSizeBody, contentWidth)
-            const requiredH = lines.length * condLineHeight + 15
+        // User requested: "just add the user inputed location and use AI only if needed"
+        // If the user entered "123 Main St, Austin, TX", rawAddr is "123 Main St, Austin, TX"
+        // rawCity might be "Austin", rawState might be "TX"
+        // We should ONLY append if they are completely missing.
 
-            // Check individual item overflow (in case list is HUGE and spans 2+ pages itself)
-            if (yCursor - requiredH < bottomThreshold) {
-                // Box Close
-                if (startY > yCursor) {
-                    page.drawRectangle({
-                        x: margin, y: yCursor - 5, width: width - 2 * margin, height: startY - yCursor + 5,
-                        borderColor: rgb(0, 0, 0), borderWidth: 1
-                    })
-                }
+        let displayAddr = rawAddr
+        const lowerAddr = displayAddr.toLowerCase()
+        const lowerCity = rawCity.toLowerCase()
+        const lowerState = rawState.toLowerCase()
 
-                // New Page
+        // Check if city is present (robust check)
+        const hasCity = lowerAddr.includes(lowerCity)
+        // Check if state is present (robust check)
+        const hasState = lowerAddr.includes(lowerState)
+
+        if (rawCity && !hasCity) displayAddr += `, ${rawCity}`
+        if (rawState && !hasState) displayAddr += `, ${rawState}`
+
+        const addrLines = wrapText(displayAddr, fontRegular, 10, 310) // Approx width for value column
+        // Tuned height calculation: Base reduced to 45 (tighter), Multiplier 14 (standard line height), Minimum 60
+        const projInfoHeight = Math.max(60, 45 + (addrLines.length * 14))
+
+        drawGridBox(page, margin, yCursor - projInfoHeight, width - 2 * margin, projInfoHeight, "PROJECT INFORMATION", [
+            { label: "Project Name:", value: data.project_info.name, xOffset: 5, yOffset: 0 },
+            { label: "Location:", value: addrLines.join('\n'), xOffset: 5, yOffset: 20 }
+        ], fontBold, fontRegular, 10)
+        yCursor -= (projInfoHeight + 20)
+
+        // Incident Details Grid
+        const colW = (width - 2 * margin) / 2
+        drawGridBox(page, margin, yCursor - 80, colW - 5, 80, "INCIDENT CONTEXT", [
+            { label: "Date of Incident:", value: data.incident_details?.date || "N/A", xOffset: 5, yOffset: 0 },
+            { label: "Time:", value: data.incident_details?.time || "N/A", xOffset: 5, yOffset: 20 },
+            { label: "Weather:", value: data.incident_details?.weather || "N/A", xOffset: 5, yOffset: 40 }
+        ], fontBold, fontRegular, 10)
+
+        // Type / Severity
+        drawGridBox(page, margin + colW + 5, yCursor - 80, colW - 5, 80, "CLASSIFICATION", [
+            { label: "Type:", value: (data.incident_details?.type || "N/A").toUpperCase().replace('_', ' '), xOffset: 5, yOffset: 0 },
+            { label: "Severity:", value: "HIGH PRIORITY", xOffset: 5, yOffset: 20 },
+            { label: "Status:", value: "OPEN", xOffset: 5, yOffset: 40 }
+        ], fontBold, fontRegular, 10)
+
+        yCursor -= 100
+
+        // Helper for Section Flow
+        const drawSectionHeader = (title: string, newPageIfNeeded = true) => {
+            if (newPageIfNeeded && yCursor < margin + 60) {
                 page = pdfDoc.addPage([612, 792])
-                if (isDraft) {
-                    page.drawText("MOCK ONLY - DRAFT - GENERATED BY BUILDFORGE AI", {
-                        x: margin - 70, y: 150, size: 72, font: fontBold, color: rgb(1, 0, 0), opacity: 0.12, rotate: degrees(45)
-                    })
-                }
-
-                yCursor = height - margin
-                startY = yCursor
-
-                drawCenteredText(page, "SPECIAL CONDITIONS (Continued)", yCursor + 10, fontRegular, 10)
-                yCursor -= 10
+                drawSafetyHeader(page, true)
+                drawWatermark(page)
+                yCursor = height - 80
             }
-
-            // --- Vertical Centering Logic for Row ---
-            const textBlockH = lines.length * condLineHeight
-            const topPadding = (requiredH - textBlockH) / 2
-            const textStartY = yCursor - topPadding
-
-            // Draw Number ("1.") - Fixed Left
-            page.drawText(`${i + 1}.`, { x: margin + 10, y: textStartY - 10, size: fontSizeBody, font: fontRegular })
-
-            // Draw Content Lines - Fixed Left Indent
-            lines.forEach((line, lineIdx) => {
-                const lineY = textStartY - (lineIdx * condLineHeight) - 10
-                page.drawText(line, { x: margin + 10 + numberColWidth, y: lineY, size: fontSizeBody, font: fontRegular })
-            })
-
-            yCursor -= requiredH
-
-            // Separator
-            if (i < data.conditions.length - 1) {
-                if (yCursor > bottomThreshold) {
-                    page.drawLine({ start: { x: margin, y: yCursor + 2 }, end: { x: width - margin, y: yCursor + 2 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) })
-                }
-            }
+            page.drawText(title, { x: margin, y: yCursor, size: 12, font: fontBold })
+            yCursor -= 15
         }
 
-        // Final Box Close
-        const boxHeight = startY - yCursor + 5
-        if (boxHeight > 0) {
-            page.drawRectangle({
-                x: margin, y: yCursor - 5, width: width - 2 * margin, height: boxHeight,
-                borderColor: rgb(0, 0, 0), borderWidth: 1
+        const drawFlowText = (text: string) => {
+            const lines = wrapText(text, fontRegular, 10, width - 2 * margin)
+            lines.forEach((line) => {
+                if (yCursor < margin + 20) {
+                    page = pdfDoc.addPage([612, 792])
+                    drawSafetyHeader(page, true)
+                    drawWatermark(page)
+                    yCursor = height - 80
+                }
+                page.drawText(line, { x: margin, y: yCursor, size: 10, font: fontRegular })
+                yCursor -= 14
             })
+            yCursor -= 20
         }
+
+        // --- Narrative Section ---
+        drawSectionHeader("DESCRIPTION OF EVENT")
+        drawFlowText(data.incident_details?.description || "No description provided.")
+
+        // --- Corrective Info ---
+        drawSectionHeader("IMMEDIATE CORRECTIVE ACTIONS")
+        drawFlowText(data.incident_details?.corrective_actions || "None reported.")
+
+        // --- Preventative Measures (AI) ---
+        if (data.preventative_measures && data.preventative_measures.length > 0) {
+            drawSectionHeader("RECOMMENDED PREVENTATIVE MEASURES")
+            data.preventative_measures.forEach((measure, i) => {
+                drawFlowText(`${i + 1}. ${measure}`)
+                yCursor += 10 // Reduce spacing
+            })
+            yCursor -= 10
+        }
+
+        // --- Signatures ---
+        if (yCursor < margin + 120) {
+            page = pdfDoc.addPage([612, 792])
+            drawSafetyHeader(page, true)
+            drawWatermark(page)
+            yCursor = height - 80
+        }
+
+        page.drawText("ATTESTATION", { x: margin, y: yCursor, size: 12, font: fontBold })
         yCursor -= 40
-    }
 
-    // --- SIGNATURE BLOCK (Always on Last Page) ---
-    // Ensure we have space
-    let sigH = 100
-    if (yCursor - sigH < margin) {
-        page = pdfDoc.addPage([612, 792])
-        yCursor = height - margin
-        if (isDraft) {
-            page.drawText("MOCK ONLY - DRAFT - GENERATED BY BUILDFORGE AI", {
-                x: margin - 70, y: 150, size: 72, font: fontBold, color: rgb(1, 0, 0), opacity: 0.12, rotate: degrees(45)
+        // Signatures Grid
+        const sigY = yCursor
+        const sigW = 200
+
+        // Reporter
+        page.drawLine({ start: { x: margin, y: sigY }, end: { x: margin + sigW, y: sigY }, thickness: 1 })
+        page.drawText("REPORTED BY", { x: margin, y: sigY - 15, size: 8, font: fontRegular })
+        page.drawText(data.reporter_info?.name || "N/A", { x: margin, y: sigY + 5, size: 12, font: fontSerif })
+
+        // Supervisor
+        const supX = width - margin - sigW
+        page.drawLine({ start: { x: supX, y: sigY }, end: { x: supX + sigW, y: sigY }, thickness: 1 })
+        page.drawText("SUPERVISOR REVIEW", { x: supX, y: sigY - 15, size: 8, font: fontRegular })
+        page.drawText(data.supervisor_info?.name || "N/A", { x: supX, y: sigY + 5, size: 12, font: fontSerif })
+
+    } else {
+        // ==========================================
+        //         PERMIT / STANDARD PDF LOGIC
+        // ==========================================
+
+        // --- MEASUREMENT PHASE (For Vertically Centering Page 1) ---
+        // We need to calculate total height of the "Content Block" to center it.
+
+        // 1. Header Area (Logo to Divider)
+        // Logo: 60, City/Dept: 40, Title: 18, Subtitle: 12, Divider: 25
+        const headerHeight = 60 + 40 + 18 + 12 + 25
+
+        // 2. Project Location Row (Dynamic)
+        const addressWidth = (width - 2 * margin) - 310 - 5
+        const addressLines = wrapText(
+            `${data.project_info.address}, ${data.project_info.city || ''} ${data.project_info.zip || ''}`,
+            fontBold,
+            fontSizeBody,
+            addressWidth
+        )
+        const row1H = Math.max(45, 45 + (addressLines.length - 1) * 14)
+
+        // 3. Permittee Row (Fixed)
+        const row2H = 65
+
+        // 4. Issuance Bar (Fixed + Spacing)
+        const barH = 30
+
+        // 5. Scope (Fixed Box + Spacing)
+        const scopeH = 45
+
+        // 6. Fees (Dynamic)
+        let feesHeight = 0
+        if (data.fees && data.fees.length > 0) {
+            const feeRowH = 22
+            // Header (10px title + 10px gap + feeRowH) + Body (feeRowH * N) + Total (feeRowH) + Spacing (25px bottom)
+            feesHeight = 10 + 10 + feeRowH + (feeRowH * data.fees.length) + feeRowH + 25
+        }
+
+        // Spacing Gaps (Reverted to standard ~25px)
+        const gap = 25
+        const totalContentHeight = headerHeight + row1H + row2H + gap + barH + gap + scopeH + gap + feesHeight
+
+        // Calculate Centered Start Y
+        // Available vertical space is height - 2*margin. 
+        // If content is smaller than available, push down.
+        // We stick to 'margin' as the absolute ceiling.
+        const availableH = height - (2 * margin)
+        let startY = height - margin
+
+        if (totalContentHeight < availableH) {
+            const extraSpace = availableH - totalContentHeight
+            startY = height - margin - (extraSpace / 2)
+        }
+
+        // --- DRAWING PHASE ---
+        yCursor = startY
+
+        // --- HEADER SECTION ---
+        // Hexagon Logo
+        page.drawSvgPath('M 30 0 L 55 15 L 55 45 L 30 60 L 5 45 L 5 15 Z', {
+            x: margin,
+            y: yCursor,
+            color: rgb(0, 0, 0),
+            scale: 0.8,
+        })
+
+        // Permit Box (Top Right)
+        if (data.permit_number) {
+            const boxW = 160
+            const boxH = 50
+            const boxX = width - margin - boxW
+            const boxY = yCursor + 5
+
+            page.drawRectangle({
+                x: boxX, y: boxY - boxH, width: boxW, height: boxH,
+                color: rgb(1, 0.9, 0.9), // Light Red
+                borderColor: rgb(0.8, 0, 0), borderWidth: 2
+            })
+            page.drawText("OFFICIAL PERMIT #", {
+                x: boxX + 10, y: boxY - 15, size: 8, font: fontBold, color: rgb(0.8, 0, 0)
+            })
+            page.drawText(data.permit_number, {
+                x: boxX + 10, y: boxY - 38, size: 16, font: fontBold, color: rgb(0, 0, 0)
             })
         }
+
+        yCursor -= 60
+
+        // City Name
+        const cityTitle = (data.project_info.city || "CITY OF METROPOLIS").toUpperCase() + ", TX"
+        const deptTitle = "DEPARTMENT OF BUILDING SAFETY & INSPECTION"
+
+        drawCenteredText(page, cityTitle, yCursor, fontBold, 16)
+        drawCenteredText(page, deptTitle, yCursor - 18, fontRegular, 9)
+        yCursor -= 40
+
+        // Title
+        drawCenteredText(page, "BUILDING PERMIT", yCursor, fontBold, fontSizeTitle)
+        yCursor -= 18
+        drawCenteredText(page, "Issued pursuant to the Building Code of Metropolis", yCursor, fontSerif, 10, rgb(0.3, 0.3, 0.3))
+        yCursor -= 12
+
+        // Divider
+        page.drawLine({ start: { x: margin, y: yCursor }, end: { x: width - margin, y: yCursor }, thickness: 2, color: rgb(0, 0, 0) })
+        yCursor -= 25
+
+        // --- MASTER GRID ---
+        const gridTopY = yCursor
+        const gridCol1W = (width - 2 * margin) * 0.5
+        const gridCol2W = (width - 2 * margin) * 0.5
+
+        // Row 1: Project Location (Dynamic Height for Address)
+        drawGridBox(page, margin, gridTopY - row1H, width - 2 * margin, row1H, "PROJECT LOCATION", [
+            { label: "Project Name:", value: data.project_info.name, xOffset: 5 },
+            { label: "Full Address:", value: addressLines.join('\n'), xOffset: 240, valueXOffset: 310 }
+        ], fontBold, fontRegular, fontSizeBody)
+
+        // Row 2: Permittee & Contractor
+        const row2Y = gridTopY - row1H
+        drawGridBox(page, margin, row2Y - row2H, gridCol1W, row2H, "PERMITTEE / OWNER", [
+            { label: "Name:", value: data.owner_info?.name || "N/A", xOffset: 5, yOffset: 0 },
+            { label: "Address:", value: data.owner_info?.address || "N/A", xOffset: 5, yOffset: 22 },
+        ], fontBold, fontRegular, fontSizeBody)
+
+        drawGridBox(page, margin + gridCol1W, row2Y - row2H, gridCol2W, row2H, "LICENSED CONTRACTOR", [
+            { label: "Company:", value: data.contractor_info?.name || "N/A", xOffset: 5, yOffset: 0 },
+            { label: "License #:", value: data.contractor_info?.license || "N/A", xOffset: 5, yOffset: 22 },
+        ], fontBold, fontRegular, fontSizeBody)
+
+        yCursor = row2Y - row2H - gap
+
+        // --- ISSUANCE DETAILS (Bar) ---
+        page.drawRectangle({ x: margin, y: yCursor - barH, width: width - 2 * margin, height: barH, color: rgb(0.9, 0.9, 0.9), borderColor: rgb(0, 0, 0), borderWidth: 1 })
+
+        const barColW = (width - 2 * margin) / 3
+        drawLabelValueSimple(page, "DATE ISSUED", data.issue_date || "Pending", margin + 10, yCursor - 18, fontBold, fontRegular)
+        drawLabelValueSimple(page, "EXPIRATION DATE", data.expiration_date || "N/A", margin + barColW + 10, yCursor - 18, fontBold, fontRegular)
+        drawLabelValueSimple(page, "STATUS", (data.status || "DRAFT").toUpperCase(), margin + 2 * barColW + 10, yCursor - 18, fontBold, fontRegular)
+
+        // Vertical Lines
+        page.drawLine({ start: { x: margin + barColW, y: yCursor }, end: { x: margin + barColW, y: yCursor - barH }, thickness: 1 })
+        page.drawLine({ start: { x: margin + 2 * barColW, y: yCursor }, end: { x: margin + 2 * barColW, y: yCursor - barH }, thickness: 1 })
+
+        yCursor -= (barH + gap)
+
+        // --- SCOPE OF WORK (Paragraph Box) ---
+        page.drawText("SCOPE OF WORK", { x: margin, y: yCursor, size: fontSizeHeader, font: fontBold })
+        yCursor -= 12
+        // Box without cell grid, just a border
+        page.drawRectangle({
+            x: margin, y: yCursor - scopeH, width: width - 2 * margin, height: scopeH + 5,
+            borderColor: rgb(0, 0, 0), borderWidth: 1
+        })
+        page.drawText(data.scope_of_work || "N/A", {
+            x: margin + 8, y: yCursor - 12, size: fontSizeBody, font: fontRegular, maxWidth: width - 2 * margin - 16, lineHeight: 16
+        })
+        yCursor -= (scopeH + gap)
+
+        // --- FEE SCHEDULE (70/30 Grid, Bold Total, Thin Gray Borders) ---
+        if (data.fees && data.fees.length > 0) {
+            page.drawText("FEE SCHEDULE", { x: margin, y: yCursor, size: fontSizeHeader, font: fontBold })
+            yCursor -= 10
+
+            const tableW = width - 2 * margin
+            const amountColW = tableW * 0.30
+            const descColW = tableW * 0.70
+            const feeRowH = 22
+
+            // Header
+            page.drawRectangle({ x: margin, y: yCursor - feeRowH, width: tableW, height: feeRowH, color: rgb(0.85, 0.85, 0.85), borderColor: rgb(0.5, 0.5, 0.5), borderWidth: 1 })
+            // Divider
+            page.drawLine({ start: { x: margin + descColW, y: yCursor }, end: { x: margin + descColW, y: yCursor - feeRowH }, thickness: 1, color: rgb(0.5, 0.5, 0.5) })
+
+            page.drawText("DESCRIPTION", { x: margin + 10, y: yCursor - 15, size: 10, font: fontBold })
+            page.drawText("AMOUNT", { x: margin + descColW + 10, y: yCursor - 15, size: 10, font: fontBold })
+            yCursor -= feeRowH
+
+            let total = 0
+            data.fees.forEach(fee => {
+                page.drawRectangle({ x: margin, y: yCursor - feeRowH, width: tableW, height: feeRowH, borderColor: rgb(0.7, 0.7, 0.7), borderWidth: 0.5 })
+                page.drawLine({ start: { x: margin + descColW, y: yCursor }, end: { x: margin + descColW, y: yCursor - feeRowH }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) })
+                // Left/Right Borders explicit (handled by rect but ensuring)
+                page.drawLine({ start: { x: margin, y: yCursor }, end: { x: margin, y: yCursor - feeRowH }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) })
+                page.drawLine({ start: { x: margin + tableW, y: yCursor }, end: { x: margin + tableW, y: yCursor - feeRowH }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) })
+
+                page.drawText(fee.description, { x: margin + 10, y: yCursor - 15, size: fontSizeBody, font: fontRegular })
+
+                const amtText = fee.amount
+                const amtWidth = fontRegular.widthOfTextAtSize(amtText, fontSizeBody)
+                page.drawText(amtText, { x: margin + tableW - amtWidth - 10, y: yCursor - 15, size: fontSizeBody, font: fontRegular })
+
+                const val = parseFloat(fee.amount.replace(/[^0-9.]/g, '')) || 0
+                total += val
+                yCursor -= feeRowH
+            })
+
+            // Total Row (Bold)
+            page.drawRectangle({ x: margin, y: yCursor - feeRowH, width: tableW, height: feeRowH, color: rgb(0.95, 0.95, 0.95), borderColor: rgb(0.5, 0.5, 0.5), borderWidth: 1 })
+            page.drawLine({ start: { x: margin + descColW, y: yCursor }, end: { x: margin + descColW, y: yCursor - feeRowH }, thickness: 1, color: rgb(0.5, 0.5, 0.5) })
+
+            page.drawText("TOTAL ASSESSED FEES", { x: margin + 10, y: yCursor - 15, size: 10, font: fontBold })
+
+            const totalText = `$${total.toFixed(2)}`
+            const totalW = fontBold.widthOfTextAtSize(totalText, 10)
+            page.drawText(totalText, { x: margin + tableW - totalW - 10, y: yCursor - 15, size: 10, font: fontBold }) // Right aligned
+
+            yCursor -= (feeRowH + gap)
+        }
+
+        // --- SPECIAL CONDITIONS (ALWAYS PAGE 2) ---
+        if (data.conditions && data.conditions.length > 0) {
+
+            // Always Break to New Page
+            page = pdfDoc.addPage([612, 792])
+            yCursor = height - margin
+            if (isDraft) {
+                page.drawText("MOCK ONLY - DRAFT - GENERATED BY BUILDFORGE AI", {
+                    x: margin - 70, y: 150, size: 72, font: fontBold, color: rgb(1, 0, 0), opacity: 0.12, rotate: degrees(45)
+                })
+            }
+
+            // Config
+            const numberColWidth = 25
+            const contentWidth = width - 2 * margin - numberColWidth - 20
+            const condLineHeight = 16
+            const bottomThreshold = margin + 40
+
+            page.drawText("SPECIAL CONDITIONS", { x: margin, y: yCursor, size: fontSizeHeader, font: fontBold })
+            yCursor -= 10
+
+            let startY = yCursor
+
+            for (let i = 0; i < data.conditions.length; i++) {
+                const cond = data.conditions[i]
+                const lines = wrapText(cond, fontRegular, fontSizeBody, contentWidth)
+                const requiredH = lines.length * condLineHeight + 15
+
+                // Check individual item overflow (in case list is HUGE and spans 2+ pages itself)
+                if (yCursor - requiredH < bottomThreshold) {
+                    // Box Close
+                    if (startY > yCursor) {
+                        page.drawRectangle({
+                            x: margin, y: yCursor - 5, width: width - 2 * margin, height: startY - yCursor + 5,
+                            borderColor: rgb(0, 0, 0), borderWidth: 1
+                        })
+                    }
+
+                    // New Page
+                    page = pdfDoc.addPage([612, 792])
+                    if (isDraft) {
+                        page.drawText("MOCK ONLY - DRAFT - GENERATED BY BUILDFORGE AI", {
+                            x: margin - 70, y: 150, size: 72, font: fontBold, color: rgb(1, 0, 0), opacity: 0.12, rotate: degrees(45)
+                        })
+                    }
+
+                    yCursor = height - margin
+                    startY = yCursor
+
+                    drawCenteredText(page, "SPECIAL CONDITIONS (Continued)", yCursor + 10, fontRegular, 10)
+                    yCursor -= 10
+                }
+
+                // --- Vertical Centering Logic for Row ---
+                const textBlockH = lines.length * condLineHeight
+                const topPadding = (requiredH - textBlockH) / 2
+                const textStartY = yCursor - topPadding
+
+                // Draw Number ("1.") - Fixed Left
+                page.drawText(`${i + 1}.`, { x: margin + 10, y: textStartY - 10, size: fontSizeBody, font: fontRegular })
+
+                // Draw Content Lines - Fixed Left Indent
+                lines.forEach((line, lineIdx) => {
+                    const lineY = textStartY - (lineIdx * condLineHeight) - 10
+                    page.drawText(line, { x: margin + 10 + numberColWidth, y: lineY, size: fontSizeBody, font: fontRegular })
+                })
+
+                yCursor -= requiredH
+
+                // Separator
+                if (i < data.conditions.length - 1) {
+                    if (yCursor > bottomThreshold) {
+                        page.drawLine({ start: { x: margin, y: yCursor + 2 }, end: { x: width - margin, y: yCursor + 2 }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) })
+                    }
+                }
+            }
+
+            // Final Box Close
+            const boxHeight = startY - yCursor + 5
+            if (boxHeight > 0) {
+                page.drawRectangle({
+                    x: margin, y: yCursor - 5, width: width - 2 * margin, height: boxHeight,
+                    borderColor: rgb(0, 0, 0), borderWidth: 1
+                })
+            }
+            yCursor -= 40
+        }
+
+        // --- SIGNATURE BLOCK (Always on Last Page) ---
+        // Ensure we have space
+        let sigH = 100
+        if (yCursor - sigH < margin) {
+            page = pdfDoc.addPage([612, 792])
+            yCursor = height - margin
+            if (isDraft) {
+                page.drawText("MOCK ONLY - DRAFT - GENERATED BY BUILDFORGE AI", {
+                    x: margin - 70, y: 150, size: 72, font: fontBold, color: rgb(1, 0, 0), opacity: 0.12, rotate: degrees(45)
+                })
+            }
+        }
+
+        let sigY = Math.max(yCursor - 80, margin + 50)
+
+        const sigLineW = 220
+
+        // Left
+        page.drawText("AUTHORIZED BY:", { x: margin, y: sigY + 15, size: 12, font: fontBold })
+        page.drawLine({ start: { x: margin, y: sigY }, end: { x: margin + sigLineW, y: sigY }, thickness: 2 })
+
+        // Right
+        const rightSigX = width - margin - sigLineW
+        page.drawText("DATE:", { x: rightSigX, y: sigY + 15, size: 12, font: fontBold })
+        page.drawLine({ start: { x: rightSigX, y: sigY }, end: { x: rightSigX + sigLineW, y: sigY }, thickness: 2 })
+
+        // Disclaimer Text below signature
+        page.drawText("This permit is granted on the express condition that the said work shall, in all respects, conform to the Ordinances of this jurisdiction.", {
+            x: margin, y: sigY - 20, size: 8, font: fontSerif, color: rgb(0.3, 0.3, 0.3)
+        })
+
+        // --- FOOTER ---
+        // Safety Report Footer (No-op here, handled globally below)
     }
 
-    let sigY = Math.max(yCursor - 80, margin + 50)
+    // --- GLOBAL FOOTER (Applied to ALL pages) ---
+    const footerText = "This is an AI-generated mock/simulation for review and preparation purposes only. It has NO legal validity and is NOT an official safety report or permit. It MUST NOT be submitted, used for construction, or relied upon legally. Generated by BuildForge AI – User assumes all liability."
 
-    const sigLineW = 220
+    const pages = pdfDoc.getPages()
+    pages.forEach(p => {
+        const { width } = p.getSize()
+        const footerLines = wrapText(footerText, fontRegular, 8, width - 2 * margin)
+        // Draw from bottom up or top down? Let's go bottom up from 40
+        let footerY = 30 + ((footerLines.length - 1) * 10) / 2 // Center block around original 30 roughly
 
-    // Left
-    page.drawText("AUTHORIZED BY:", { x: margin, y: sigY + 15, size: 12, font: fontBold })
-    page.drawLine({ start: { x: margin, y: sigY }, end: { x: margin + sigLineW, y: sigY }, thickness: 2 })
-
-    // Right
-    const rightSigX = width - margin - sigLineW
-    page.drawText("DATE:", { x: rightSigX, y: sigY + 15, size: 12, font: fontBold })
-    page.drawLine({ start: { x: rightSigX, y: sigY }, end: { x: rightSigX + sigLineW, y: sigY }, thickness: 2 })
-
-    // Disclaimer Text below signature
-    page.drawText("This permit is granted on the express condition that the said work shall, in all respects, conform to the Ordinances of this jurisdiction.", {
-        x: margin, y: sigY - 20, size: 8, font: fontSerif, color: rgb(0.3, 0.3, 0.3)
+        footerLines.forEach((line, i) => {
+            drawCenteredText(p, line, footerY - (i * 10), fontRegular, 8, rgb(0.5, 0.5, 0.5))
+        })
     })
-
-    // --- FOOTER ---
-    drawCenteredText(page, "Generated by BuildForge AI for review purposes only. Not an official legal document. User assumes all liability.", 30, fontRegular, 8, rgb(0.5, 0.5, 0.5))
 
     return pdfDoc.save()
 }

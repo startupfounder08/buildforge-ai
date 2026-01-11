@@ -270,7 +270,7 @@ export function ProjectNotes({ projectId }: ProjectNotesProps) {
                                                     <DropdownMenuItem onClick={(e) => openEdit(e, note)}>
                                                         <Pencil className="mr-2 h-3 w-3" /> Edit
                                                     </DropdownMenuItem>
-                                                    <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={(e) => handleDelete(e, note.id)}>
+                                                    <DropdownMenuItem className="text-red-500 focus:text-white focus:bg-red-600" onClick={(e) => handleDelete(e, note.id)}>
                                                         <Trash2 className="mr-2 h-3 w-3" /> Delete
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
@@ -282,7 +282,7 @@ export function ProjectNotes({ projectId }: ProjectNotesProps) {
                                     <p className="text-sm text-muted-foreground line-clamp-4">
                                         {stripHtml(note.content)}
                                     </p>
-                                    <div className="mt-2 text-xs text-blue-400 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className="mt-2 text-xs text-blue-400 font-medium opacity-0 group-hover:opacity-100 transition-opacity hover:underline">
                                         Click to read more
                                     </div>
                                 </CardContent>

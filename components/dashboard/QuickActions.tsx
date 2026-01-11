@@ -25,7 +25,7 @@ export function QuickActions({ projects, userId }: QuickActionsProps) {
                 <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                     <Link href="/dashboard/projects">
                         <Button className="w-full justify-start h-12" variant="outline">
-                            <Plus className="mr-2 h-4 w-4 text-primary" />
+                            <Plus className="mr-2 h-4 w-4 text-blue-500" />
                             Create New Project
                         </Button>
                     </Link>

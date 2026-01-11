@@ -8,12 +8,19 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { Loader2, CheckCircle, ChevronLeft, ChevronRight, FileText, FileSignature, ShieldAlert, BadgeDollarSign, Building, Zap, Droplets, Hammer } from 'lucide-react'
+import { Loader2, CheckCircle, ChevronLeft, ChevronRight, FileText, FileSignature, ShieldAlert, BadgeDollarSign, Building, Zap, Droplets, Hammer, CloudRain, ThermometerSun, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 // --- Validation Schemas ---
 const step1Schema = z.object({
@@ -24,22 +31,30 @@ const step1Schema = z.object({
 })
 
 const step2Schema = z.object({
-    ownerName: z.string().min(1, "Owner Name is required"),
+    ownerName: z.string().min(1, "Owner/Supervisor Name is required"),
     ownerAddress: z.string().optional(),
     ownerPhone: z.string().optional(),
-    contractorName: z.string().min(1, "Contractor Name is required"),
+    contractorName: z.string().min(1, "Contractor/Reporter Name is required"),
     contractorLicense: z.string().optional(),
     contractorAddress: z.string().optional(),
 })
 
+// Timeline or Incident Details
 const step3Schema = z.object({
-    startDate: z.string().min(1, "Start Date is required"),
-    completionDate: z.string().min(1, "Completion Date is required"),
+    startDate: z.string().optional(),
+    completionDate: z.string().optional(),
+    incidentDate: z.string().optional(),
+    incidentTime: z.string().optional(),
+    weather: z.string().optional(),
 })
 
+// Valuation or Specific Details
 const step4Schema = z.object({
-    estimatedCost: z.string().min(1, "Estimated Cost is required"),
-    scope: z.string().min(10, "Please provide a detailed scope of work (min 10 chars)"),
+    estimatedCost: z.string().optional(),
+    scope: z.string().optional(),
+    incidentType: z.string().optional(),
+    description: z.string().optional(),
+    correctiveActions: z.string().optional(),
 })
 
 const step5Schema = z.object({
@@ -88,12 +103,16 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
             ownerName: '',
             contractorName: '',
             includeDisclaimers: true,
-            agreeToMock: false
+            agreeToMock: false,
+            // Safety Defaults
+            incidentType: 'near_miss',
+            weather: 'Clear',
         },
         mode: 'onChange'
     })
 
     const formData = watch()
+    const isSafety = selectedCategory === 'safety'
 
     // Handle Category Selection
     const handleCategorySelect = (catId: string) => {
@@ -112,8 +131,27 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
         let valid = false
         if (currentStep === 1) valid = await trigger(['type', 'title', 'address', 'jurisdiction'])
         if (currentStep === 2) valid = await trigger(['ownerName', 'contractorName'])
-        if (currentStep === 3) valid = await trigger(['startDate', 'completionDate'])
-        if (currentStep === 4) valid = await trigger(['estimatedCost', 'scope'])
+
+        if (currentStep === 3) {
+            if (isSafety) {
+                valid = await trigger(['incidentDate', 'incidentTime', 'weather'])
+                // Manual check because schema is optional for hybrid
+                if (!formData.incidentDate) { setValue('incidentDate', ''); await trigger('incidentDate'); return false; }
+            } else {
+                valid = await trigger(['startDate', 'completionDate'])
+                if (!formData.startDate) { setValue('startDate', ''); await trigger('startDate'); return false; }
+            }
+        }
+
+        if (currentStep === 4) {
+            if (isSafety) {
+                valid = await trigger(['incidentType', 'description'])
+                if (!formData.description) { setValue('description', ''); await trigger('description'); return false; }
+            } else {
+                valid = await trigger(['estimatedCost', 'scope'])
+                if (!formData.estimatedCost) { setValue('estimatedCost', ''); await trigger('estimatedCost'); return false; }
+            }
+        }
 
         return valid
     }
@@ -124,19 +162,14 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
     }
 
     const handleBack = () => {
-        // If in Step 1 and category selected, go back to category list
         if (step === 1 && selectedCategory) {
             setSelectedCategory(null)
             setValue('type', '')
             return
         }
-        // If in Step 1 and NO category, go back to previous page (Project Dashboard)
         if (step === 1 && !selectedCategory) {
-            if (onCancel) {
-                onCancel()
-            } else {
-                router.back()
-            }
+            if (onCancel) onSuccess ? onSuccess() : onCancel() // Fallback
+            else router.back()
             return
         }
         setStep(prev => Math.max(prev - 1, 1))
@@ -150,7 +183,8 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     projectId,
-                    ...data
+                    ...data,
+                    category: selectedCategory // Explicitly pass category
                 })
             })
             const result = await res.json()
@@ -174,8 +208,8 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
     const steps = [
         { id: 1, title: 'Basics' },
         { id: 2, title: 'Parties' },
-        { id: 3, title: 'Timeline' },
-        { id: 4, title: 'Valuation' },
+        { id: 3, title: isSafety ? 'Incident' : 'Timeline' },
+        { id: 4, title: isSafety ? 'Details' : 'Valuation' },
         { id: 5, title: 'Review' }
     ]
 
@@ -192,24 +226,23 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
                         <span className={`text-xs mt-2 font-medium transition-colors ${step >= s.id ? 'text-foreground' : 'text-muted-foreground'}`}>{s.title}</span>
                     </div>
                 ))}
-                {/* Connector Line (Simplified) */}
                 <div className="absolute top-4 left-0 w-full h-0.5 bg-muted -z-0 hidden md:block" />
             </div>
 
             <Card className="min-h-[500px] flex flex-col border-muted/60 shadow-sm">
                 <CardHeader>
                     <CardTitle className="text-2xl">
-                        {step === 1 && 'Project Basics'}
-                        {step === 2 && 'Parties Involved'}
-                        {step === 3 && 'Project Timeline'}
-                        {step === 4 && 'Valuation & Scope'}
+                        {step === 1 && 'Document Basics'}
+                        {step === 2 && (isSafety ? 'Reporter & Supervisor' : 'Parties Involved')}
+                        {step === 3 && (isSafety ? 'Incident Context' : 'Project Timeline')}
+                        {step === 4 && (isSafety ? 'Incident Details' : 'Valuation & Scope')}
                         {step === 5 && 'Review & Generate'}
                     </CardTitle>
                     <CardDescription>
                         {step === 1 && (!selectedCategory ? 'Select a document category.' : 'Enter details.')}
-                        {step === 2 && 'Who are the key stakeholders?'}
-                        {step === 3 && 'When is the work happening?'}
-                        {step === 4 && 'Financials and work description.'}
+                        {step === 2 && 'Who is involved?'}
+                        {step === 3 && (isSafety ? 'When and where did it happen?' : 'Timeframe for the project.')}
+                        {step === 4 && (isSafety ? 'What happened?' : 'Financials and work description.')}
                         {step === 5 && 'Confirm details before generation.'}
                     </CardDescription>
                 </CardHeader>
@@ -309,37 +342,39 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
                         {step === 2 && (
                             <motion.div key="step2" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-8">
                                 <div className="space-y-4">
-                                    <h3 className="font-semibold flex items-center gap-2"><div className="w-1 h-4 bg-primary rounded-full" /> Property Owner</h3>
+                                    <h3 className="font-semibold flex items-center gap-2"><div className="w-1 h-4 bg-primary rounded-full" /> {isSafety ? 'Job Site Supervisor' : 'Property Owner'}</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label>Owner Name</Label>
-                                            <Input {...register('ownerName')} placeholder="John Doe or LLC" />
+                                            <Label>{isSafety ? 'Supervisor Name' : 'Owner Name'}</Label>
+                                            <Input {...register('ownerName')} placeholder="Full Name" />
                                             {errors.ownerName && <p className="text-sm text-destructive">{errors.ownerName.message}</p>}
                                         </div>
                                         <div className="space-y-2">
-                                            <Label>Owner Phone (Optional)</Label>
+                                            <Label>Phone (Optional)</Label>
                                             <Input {...register('ownerPhone')} placeholder="(555) 123-4567" />
                                         </div>
                                         <div className="col-span-1 md:col-span-2 space-y-2">
-                                            <Label>Owner Mailing Address (Optional)</Label>
-                                            <Input {...register('ownerAddress')} placeholder="Same as project address..." />
+                                            <Label>Address (Optional)</Label>
+                                            <Input {...register('ownerAddress')} placeholder="Mailing Address..." />
                                         </div>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
-                                    <h3 className="font-semibold flex items-center gap-2"><div className="w-1 h-4 bg-secondary rounded-full" /> Licensed Contractor</h3>
+                                    <h3 className="font-semibold flex items-center gap-2"><div className="w-1 h-4 bg-secondary rounded-full" /> {isSafety ? 'Reporter / Safety Officer' : 'Licensed Contractor'}</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label>Company Name</Label>
-                                            <Input {...register('contractorName')} placeholder="BuildRight Construction" />
+                                            <Label>{isSafety ? 'Reporter Name' : 'Company Name'}</Label>
+                                            <Input {...register('contractorName')} placeholder={isSafety ? "Safety Officer Name" : "BuildRight Construction"} />
                                             {errors.contractorName && <p className="text-sm text-destructive">{errors.contractorName.message}</p>}
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label>License #</Label>
-                                            <Input {...register('contractorLicense')} placeholder="GC-123456" />
-                                        </div>
+                                        {!isSafety && (
+                                            <div className="space-y-2">
+                                                <Label>License #</Label>
+                                                <Input {...register('contractorLicense')} placeholder="GC-123456" />
+                                            </div>
+                                        )}
                                         <div className="col-span-1 md:col-span-2 space-y-2">
-                                            <Label>Company Address (Optional)</Label>
+                                            <Label>Address (Optional)</Label>
                                             <Input {...register('contractorAddress')} placeholder="HQ Address..." />
                                         </div>
                                     </div>
@@ -349,41 +384,115 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
 
                         {step === 3 && (
                             <motion.div key="step3" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6 max-w-lg mx-auto py-10">
-                                <div className="grid grid-cols-1 gap-6">
-                                    <div className="space-y-2">
-                                        <Label>Proposed Start Date</Label>
-                                        <Input type="date" {...register('startDate')} />
-                                        {errors.startDate && <p className="text-sm text-destructive">{errors.startDate.message}</p>}
+                                {isSafety ? (
+                                    /* Safety: Incident Time & Context */
+                                    <div className="grid grid-cols-1 gap-6">
+                                        <div className="space-y-2">
+                                            <Label>Date of Incident</Label>
+                                            <Input type="date" {...register('incidentDate')} />
+                                            {errors.incidentDate && <p className="text-sm text-destructive">Required for safety reports</p>}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Time</Label>
+                                                <Input type="time" {...register('incidentTime')} />
+                                                {errors.incidentTime && <p className="text-sm text-destructive">Required</p>}
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Weather</Label>
+                                                <div className="relative">
+                                                    <ThermometerSun className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                                    <Input {...register('weather')} className="pl-9" placeholder="e.g. Sunny, 85F" />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Estimated Completion / Due Date</Label>
-                                        <Input type="date" {...register('completionDate')} />
-                                        {errors.completionDate && <p className="text-sm text-destructive">{errors.completionDate.message}</p>}
+                                ) : (
+                                    /* Standard: Project Timeline */
+                                    <div className="grid grid-cols-1 gap-6">
+                                        <div className="space-y-2">
+                                            <Label>Proposed Start Date</Label>
+                                            <Input type="date" {...register('startDate')} />
+                                            {errors.startDate && <p className="text-sm text-destructive">Required</p>}
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Estimated Completion / Due Date</Label>
+                                            <Input type="date" {...register('completionDate')} />
+                                            {errors.completionDate && <p className="text-sm text-destructive">Required</p>}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </motion.div>
                         )}
 
                         {step === 4 && (
                             <motion.div key="step4" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6">
-                                <div className="space-y-4">
-                                    <Label className="text-base">Initial Valuation / Estimated Cost</Label>
-                                    <div className="relative max-w-xs">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                        <Input {...register('estimatedCost')} className="pl-8 text-lg font-medium" placeholder="0.00" />
+                                {isSafety ? (
+                                    /* Safety: Details */
+                                    <div className="space-y-6">
+                                        <div className="space-y-2">
+                                            <Label>Incident Type</Label>
+                                            <Controller
+                                                name="incidentType"
+                                                control={control}
+                                                render={({ field }) => (
+                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select type" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="near_miss">Near Miss</SelectItem>
+                                                            <SelectItem value="injury">Injury / Illness</SelectItem>
+                                                            <SelectItem value="property_damage">Property Damage</SelectItem>
+                                                            <SelectItem value="hazard">Hazard Observation</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                )}
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Description of Event</Label>
+                                            <Textarea
+                                                {...register('description')}
+                                                placeholder="Describe what happened, root cause, and immediate outcome..."
+                                                className="min-h-[120px]"
+                                            />
+                                            {errors.description && <p className="text-sm text-destructive">Required</p>}
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Immediate Corrective Actions</Label>
+                                            <Textarea
+                                                {...register('correctiveActions')}
+                                                placeholder="What steps were taken immediately? (Optional)"
+                                                className="min-h-[80px]"
+                                            />
+                                        </div>
                                     </div>
-                                    {errors.estimatedCost && <p className="text-sm text-destructive">{errors.estimatedCost.message}</p>}
-                                </div>
-                                <div className="space-y-2 h-full">
-                                    <Label className="text-base">Detailed Scope of Work</Label>
-                                    <p className="text-sm text-muted-foreground">Describe the work to be performed. This will appear prominently on the permit.</p>
-                                    <Textarea
-                                        {...register('scope')}
-                                        placeholder="E.g. Full interior renovation of Unit 4B including new electrical panel, updated plumbing fixtures, and drywall replacement..."
-                                        className="min-h-[200px] text-base leading-relaxed"
-                                    />
-                                    {errors.scope && <p className="text-sm text-destructive">{errors.scope.message}</p>}
-                                </div>
+                                ) : (
+                                    /* Standard: Valuation & Scope */
+                                    <div className="space-y-6">
+                                        <div className="space-y-4">
+                                            <Label className="text-base">Initial Valuation / Estimated Cost</Label>
+                                            <div className="relative max-w-xs">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                                <Input {...register('estimatedCost')} className="pl-8 text-lg font-medium" placeholder="0.00" />
+                                            </div>
+                                            {errors.estimatedCost && <p className="text-sm text-destructive">{errors.estimatedCost.message}</p>}
+                                        </div>
+                                        <div className="space-y-2 h-full">
+                                            <Label className="text-base">Detailed Scope of Work</Label>
+                                            <p className="text-sm text-muted-foreground">Describe the work to be performed. This will appear prominently on the permit.</p>
+                                            <Textarea
+                                                {...register('scope')}
+                                                placeholder="E.g. Full interior renovation of Unit 4B including new electrical panel, updated plumbing fixtures, and drywall replacement..."
+                                                className="min-h-[200px] text-base leading-relaxed"
+                                            />
+                                            {errors.scope && <p className="text-sm text-destructive">{errors.scope.message}</p>}
+                                        </div>
+                                    </div>
+                                )}
                             </motion.div>
                         )}
 
@@ -396,16 +505,23 @@ export function NewDocumentWizard({ projectId, onSuccess, onCancel }: NewDocumen
                                             <span className="text-muted-foreground block">Type</span>
                                             <span className="font-medium capitalize">{formData.type.replace('_', ' ')}</span>
                                         </div>
+                                        {isSafety ? (
+                                            <div>
+                                                <span className="text-muted-foreground block">Date</span>
+                                                <span className="font-medium">{formData.incidentDate || "N/A"}</span>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <span className="text-muted-foreground block">Cost</span>
+                                                <span className="font-medium">${formData.estimatedCost}</span>
+                                            </div>
+                                        )}
                                         <div>
-                                            <span className="text-muted-foreground block">Cost</span>
-                                            <span className="font-medium">${formData.estimatedCost}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-muted-foreground block">Owner</span>
+                                            <span className="text-muted-foreground block">{isSafety ? 'Supervisor' : 'Owner'}</span>
                                             <span className="font-medium">{formData.ownerName}</span>
                                         </div>
                                         <div>
-                                            <span className="text-muted-foreground block">Contractor</span>
+                                            <span className="text-muted-foreground block">{isSafety ? 'Reporter' : 'Contractor'}</span>
                                             <span className="font-medium">{formData.contractorName}</span>
                                         </div>
                                         <div className="col-span-2">

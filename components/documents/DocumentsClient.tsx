@@ -9,6 +9,9 @@ import {
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -251,9 +254,10 @@ export function DocumentsClient({ initialDocuments, projects, userId }: Document
         }
     }
 
-    const handleBulkDelete = async () => {
-        if (!confirm(`Delete ${selectedDocIds.length} documents?`)) return
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+    const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
 
+    const executeBulkDelete = async () => {
         try {
             const { error } = await supabase
                 .from('documents')
@@ -261,10 +265,34 @@ export function DocumentsClient({ initialDocuments, projects, userId }: Document
                 .in('id', selectedDocIds)
 
             if (error) throw error
+
+            // Immediate UI Update
+            setDocuments(prev => prev.filter(d => !selectedDocIds.includes(d.id)))
             toast.success("Documents deleted.")
             setSelectedDocIds([])
         } catch (e) {
             toast.error("Failed to delete.")
+        } finally {
+            setConfirmBulkDelete(false)
+        }
+    }
+
+    const executeDelete = async (id: string) => {
+        try {
+            const { error } = await supabase
+                .from('documents')
+                .delete()
+                .eq('id', id)
+
+            if (error) throw error
+
+            // Immediate UI Update
+            setDocuments(prev => prev.filter(d => d.id !== id))
+            toast.success('Deleted')
+        } catch (e) {
+            toast.error('Failed to delete')
+        } finally {
+            setConfirmDeleteId(null)
         }
     }
 
@@ -293,9 +321,7 @@ export function DocumentsClient({ initialDocuments, projects, userId }: Document
                     className="text-red-500 focus:bg-red-500 focus:text-white cursor-pointer"
                     onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm('Delete this document?')) {
-                            supabase.from('documents').delete().eq('id', doc.id).then(() => toast.success('Deleted'));
-                        }
+                        setConfirmDeleteId(doc.id)
                     }}>
                     <Trash2 className="mr-2 h-4 w-4" /> Delete
                 </DropdownMenuItem>
@@ -399,7 +425,7 @@ export function DocumentsClient({ initialDocuments, projects, userId }: Document
                                 {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
                                 Export Zip
                             </Button>
-                            <Button size="sm" variant="ghost" className="hover:bg-red-500/20 hover:text-red-400 h-8 gap-2" onClick={handleBulkDelete}>
+                            <Button size="sm" variant="ghost" className="hover:bg-red-500/20 hover:text-red-400 h-8 gap-2" onClick={() => setConfirmBulkDelete(true)}>
                                 <Trash2 className="h-3 w-3" />
                                 Delete
                             </Button>
@@ -542,7 +568,43 @@ export function DocumentsClient({ initialDocuments, projects, userId }: Document
                 open={!!detailsDoc}
                 onOpenChange={(open) => !open && setDetailsDoc(null)}
                 document={detailsDoc}
+                onUpdate={(updatedDoc) => {
+                    setDocuments(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d))
+                    setDetailsDoc(updatedDoc)
+                }}
             />
+
+            <AlertDialog open={!!confirmDeleteId} onOpenChange={(open) => !open && setConfirmDeleteId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Document?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete the document. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => confirmDeleteId && executeDelete(confirmDeleteId)} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete {selectedDocIds.length} {selectedDocIds.length === 1 ? 'Document' : 'Documents'}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete the selected {selectedDocIds.length === 1 ? 'document' : 'documents'}. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={executeBulkDelete} className="bg-red-600 hover:bg-red-700">
+                            {selectedDocIds.length === 1 ? 'Delete' : 'Delete All'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }

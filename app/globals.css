@@ -41,6 +41,15 @@
   --ring: 215 100% 33.5%;
   /* Match primary */
 
+  --sidebar-background: 0 0% 6.7%;
+  --sidebar-foreground: 0 0% 98%;
+  --sidebar-primary: 215 100% 33.5%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 0 0% 25%;
+  --sidebar-accent-foreground: 0 0% 98%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 215 100% 33.5%;
+
   --radius: 0.5rem;
 }
 
@@ -65,6 +74,15 @@
   --border: 0 0% 89.8%;
   --input: 0 0% 89.8%;
   --ring: 215 100% 33.5%;
+
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 90%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
 }
 
 @theme inline {
@@ -88,6 +106,15 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
   --color-success: hsl(var(--success));
+
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar: hsl(var(--sidebar-background));
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);

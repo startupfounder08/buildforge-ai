@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
     Table,
     TableBody,
@@ -55,6 +55,11 @@ export function DocumentTable({ documents }: DocumentTableProps) {
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
     const [previewDoc, setPreviewDoc] = useState<any | null>(null)
     const [detailsDoc, setDetailsDoc] = useState<any | null>(null)
+    const [docs, setDocs] = useState(documents)
+
+    useEffect(() => {
+        setDocs(documents)
+    }, [documents])
 
     const handleDeleteClick = (id: string) => {
         setConfirmDeleteId(id)
@@ -209,7 +214,7 @@ export function DocumentTable({ documents }: DocumentTableProps) {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {documents.map((doc) => (
+                    {docs.map((doc) => (
                         <TableRow key={doc.id} className="group hover:bg-muted/50 transition-colors">
                             <TableCell className="font-medium">
                                 <div className="flex items-center gap-2">
@@ -345,6 +350,10 @@ export function DocumentTable({ documents }: DocumentTableProps) {
                 open={!!detailsDoc}
                 onOpenChange={(open) => !open && setDetailsDoc(null)}
                 document={detailsDoc}
+                onUpdate={(updatedDoc) => {
+                    setDocs(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d))
+                    setDetailsDoc(updatedDoc)
+                }}
             />
 
             <AlertDialog open={!!confirmDeleteId} onOpenChange={(open) => !open && setConfirmDeleteId(null)}>
@@ -361,6 +370,6 @@ export function DocumentTable({ documents }: DocumentTableProps) {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+        </div >
     )
 }
