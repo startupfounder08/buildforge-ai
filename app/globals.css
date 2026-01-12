@@ -130,4 +130,21 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+
+  /* Hide number input spinners */
+  .no-spinner::-webkit-inner-spin-button,
+  .no-spinner::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .no-spinner {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .sidebar-menu-button {
+    @apply uppercase text-xs font-bold tracking-wider text-muted-foreground transition-colors hover:text-foreground;
+  }
 }

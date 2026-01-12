@@ -248,7 +248,7 @@ export function ProjectDialog({ project, open: controlledOpen, onOpenChange: set
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button type="submit" disabled={loading}>
+                        <Button type="submit" disabled={loading} className="hover:bg-blue-600 transition-colors">
                             {loading ? (project ? 'Updating...' : 'Creating...') : (project ? 'Save Changes' : 'Create Project')}
                         </Button>
                     </DialogFooter>

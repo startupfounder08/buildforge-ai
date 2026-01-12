@@ -200,3 +200,85 @@ export async function createMilestone(projectId: string, title: string, start: s
     revalidatePath(`/dashboard/projects/${projectId}`)
     return { message: 'Success' }
 }
+
+export async function updateMilestoneDates(id: string, start: string, end: string) {
+    const supabase = await createClient()
+    const { error } = await supabase
+        .from('project_milestones')
+        .update({ start_date: start, end_date: end })
+        .eq('id', id)
+
+    if (error) return { message: error.message }
+    revalidatePath('/dashboard/projects')
+    return { message: 'Success' }
+}
+
+export async function updateMilestoneStatus(id: string, status: string) {
+    const supabase = await createClient()
+    const { error } = await supabase
+        .from('project_milestones')
+        .update({ status })
+        .eq('id', id)
+
+    if (error) return { message: error.message }
+    revalidatePath('/dashboard/projects')
+    return { message: 'Success' }
+}
+
+export async function updateProjectBudget(projectId: string, amount: number) {
+    const supabase = await createClient()
+    const { error } = await supabase
+        .from('projects')
+        .update({ budget: amount })
+        .eq('id', projectId)
+
+    if (error) return { message: error.message }
+    revalidatePath(`/dashboard/projects/${projectId}`)
+    return { message: 'Success' }
+}
+
+export async function addExpense(projectId: string, expense: { description: string, amount: number, category: string, date: string }) {
+    const supabase = await createClient()
+    const { error } = await supabase
+        .from('project_expenses')
+        .insert([{
+            project_id: projectId,
+            description: expense.description,
+            amount: expense.amount,
+            category: expense.category,
+            date: expense.date // Ensure your DB accepts string date or cast it
+        }])
+
+    if (error) return { message: error.message }
+    revalidatePath(`/dashboard/projects/${projectId}`)
+    return { message: 'Success' }
+}
+
+export async function deleteExpense(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('project_expenses')
+    .delete()
+    .eq('id', id)
+
+  if (error) return { message: error.message }
+  revalidatePath('/dashboard/projects') 
+  return { message: 'Success' }
+}
+
+export async function updateExpense(id: string, expense: { description: string, amount: number, category: string, date: string }) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('project_expenses')
+    .update({
+      description: expense.description,
+      amount: expense.amount,
+      category: expense.category,
+      date: expense.date
+    })
+    .eq('id', id)
+
+  if (error) return { message: error.message }
+  revalidatePath('/dashboard/projects')
+  return { message: 'Success' }
+}

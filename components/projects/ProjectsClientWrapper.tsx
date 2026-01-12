@@ -100,7 +100,7 @@ export function ProjectsClientWrapper({ initialProjects }: ProjectsClientWrapper
                 </div>
                 {/* Create Project Dialog */}
                 <ProjectDialog>
-                    <Button>
+                    <Button className="hover:bg-blue-600 transition-colors">
                         <Plus className="mr-2 h-4 w-4" /> New Project
                     </Button>
                 </ProjectDialog>

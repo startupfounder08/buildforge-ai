@@ -63,6 +63,7 @@ create table if not exists public.projects (
   status text default 'planning', -- 'planning', 'active', 'completed'
   due_date timestamptz,
   notes text,
+  budget numeric default 0,
   created_at timestamptz default now()
 );
 
@@ -73,6 +74,25 @@ drop policy if exists "Users can CRUD own projects" on public.projects;
 create policy "Users can CRUD own projects"
   on public.projects for all
   using ( auth.uid() = user_id );
+
+
+-- PROJECT EXPENSES TABLE
+create table if not exists public.project_expenses (
+  id uuid default uuid_generate_v4() primary key,
+  project_id uuid references public.projects(id) on delete cascade not null,
+  description text not null,
+  amount numeric not null,
+  category text, -- 'material', 'labor', 'permit', 'other'
+  date date default CURRENT_DATE,
+  created_at timestamptz default now()
+);
+
+alter table public.project_expenses enable row level security;
+
+drop policy if exists "Users can CRUD own expenses" on public.project_expenses;
+create policy "Users can CRUD own expenses"
+  on public.project_expenses for all
+  using ( auth.uid() = project_id in (select id from public.projects where user_id = auth.uid()) );
 
 
 -- DOCUMENTS TABLE

@@ -1,17 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, FileText, Calendar, Clock, ArrowLeft } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
+import { Plus, FileText, Calendar, Clock, ArrowLeft, TrendingUp, AlertTriangle, CheckCircle } from "lucide-react"
 import Link from 'next/link'
 import { ProjectTimeline } from '@/components/projects/ProjectTimeline'
 import { ProjectNotes } from '@/components/projects/ProjectNotes'
+import { BudgetManager } from '@/components/projects/BudgetManager'
 import { DocumentTable } from '@/components/documents/DocumentTable'
 import { ImportDocumentDialog } from '@/components/documents/ImportDocumentDialog'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, differenceInDays } from 'date-fns'
+import { createClient } from '@/lib/supabase/client'
 
 interface ProjectDetailsClientProps {
     project: any
@@ -23,6 +26,77 @@ interface ProjectDetailsClientProps {
 
 export function ProjectDetailsClient({ project, documents, latestDocs, userId, initialTab = 'overview' }: ProjectDetailsClientProps) {
     const [activeTab, setActiveTab] = useState(initialTab)
+    const [data, setData] = useState({
+        milestones: [] as any[],
+        expenses: [] as any[],
+        budget: project.budget || 100000, // Fallback/Mock budget if column missing
+        health: 'On Track',
+        completion: 0,
+        budgetUsed: 0,
+        nextMilestone: null as any
+    })
+    const supabase = createClient()
+
+    useEffect(() => {
+        const fetchData = async () => {
+            // Fetch Milestones
+            const { data: milestones } = await supabase
+                .from('project_milestones')
+                .select('*')
+                .eq('project_id', project.id)
+                .order('start_date', { ascending: true })
+
+            // Fetch Expenses (Safely - try/catch in case table doesn't exist yet)
+            let expenses: any[] = []
+            try {
+                const { data: exp } = await supabase
+                    .from('project_expenses') // This table might not exist yet
+                    .select('*')
+                    .eq('project_id', project.id)
+                if (exp) expenses = exp
+            } catch (e) {
+                console.warn("Expenses table not found or error fetching")
+            }
+
+            // Calculations
+            const totalMilestones = milestones?.length || 0
+            const completedMilestones = milestones?.filter(m => m.status === 'completed').length || 0
+            const completion = totalMilestones > 0 ? (completedMilestones / totalMilestones) * 100 : 0 // Start at 0 if no milestones
+
+            const totalExpenses = expenses.reduce((sum, item) => sum + (item.amount || 0), 0)
+            const budgetUsed = data.budget > 0 ? (totalExpenses / data.budget) * 100 : 0
+
+            // Health Logic
+            let health = 'On Track'
+            if (budgetUsed > 90) health = 'At Risk'
+            if (project.due_date && new Date(project.due_date) < new Date() && completion < 100) health = 'Delayed'
+
+            // Next Milestone (Find first pending, assuming sorted by date)
+            const nextMilestone = milestones?.find(m => m.status === 'pending') || null
+
+            setData({
+                milestones: milestones || [],
+                expenses,
+                budget: project.budget || 100000,
+                health,
+                completion,
+                budgetUsed,
+                nextMilestone
+            })
+        }
+
+        fetchData()
+
+        // Subscribe to changes (Optional refinement: Realtime)
+        const channel = supabase.channel('project_updates')
+            .on('postgres_changes', { event: '*', schema: 'public', filter: `project_id=eq.${project.id}` }, () => {
+                fetchData()
+            })
+            .subscribe()
+
+        return () => { supabase.removeChannel(channel) }
+
+    }, [project, supabase])
 
     return (
         <div className="flex flex-col gap-6 p-4 md:p-8">
@@ -51,7 +125,7 @@ export function ProjectDetailsClient({ project, documents, latestDocs, userId, i
             <Tabs defaultValue={activeTab} value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                 <div className="relative">
                     <TabsList className="bg-transparent border-b border-white/10 w-full justify-start rounded-none p-0 h-auto">
-                        {['overview', 'timeline', 'documents', 'notes'].map((tab) => (
+                        {['overview', 'timeline', 'documents', 'budget', 'notes'].map((tab) => (
                             <TabsTrigger
                                 key={tab}
                                 value={tab}
@@ -81,7 +155,19 @@ export function ProjectDetailsClient({ project, documents, latestDocs, userId, i
                             transition={{ duration: 0.2 }}
                             className="space-y-4"
                         >
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                                <Card>
+                                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <CardTitle className="text-sm font-medium">Project Health</CardTitle>
+                                        <TrendingUp className={`h-4 w-4 ${data.health === 'On Track' ? 'text-emerald-500' : 'text-red-500'}`} />
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className={`text-2xl font-bold ${data.health === 'On Track' ? 'text-emerald-500' : 'text-red-500'}`}>{data.health}</div>
+                                        <p className="text-xs text-muted-foreground">
+                                            Based on schedule & budget
+                                        </p>
+                                    </CardContent>
+                                </Card>
                                 <Card>
                                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                         <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
@@ -90,7 +176,7 @@ export function ProjectDetailsClient({ project, documents, latestDocs, userId, i
                                     <CardContent>
                                         <div className="text-2xl font-bold">{documents?.length || 0}</div>
                                         <p className="text-xs text-muted-foreground">
-                                            +1 from last week
+                                            Manage permits, bids, contracts
                                         </p>
                                     </CardContent>
                                 </Card>
@@ -104,7 +190,7 @@ export function ProjectDetailsClient({ project, documents, latestDocs, userId, i
                                             {Math.floor((new Date().getTime() - new Date(project.created_at).getTime()) / (1000 * 3600 * 24))}
                                         </div>
                                         <p className="text-xs text-muted-foreground">
-                                            project duration
+                                            days since creation
                                         </p>
                                     </CardContent>
                                 </Card>
@@ -115,42 +201,66 @@ export function ProjectDetailsClient({ project, documents, latestDocs, userId, i
                                     <CardHeader>
                                         <CardTitle>Overview</CardTitle>
                                         <CardDescription>
-                                            Project status and health.
+                                            Project status and key metrics.
                                         </CardDescription>
                                     </CardHeader>
                                     <CardContent className="pl-6">
-                                        <div className="space-y-6">
+                                        <div className="space-y-8">
                                             <div className="flex items-center justify-between">
                                                 <div className="space-y-1">
-                                                    <p className="text-sm font-medium text-muted-foreground">Project Health</p>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                                                        <span className="text-xl font-bold">On Track</span>
+                                                    <p className="text-sm font-medium text-muted-foreground">Completion Status</p>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="h-12 w-12 relative flex items-center justify-center">
+                                                            <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
+                                                                {/* Background Circle */}
+                                                                <path className="text-blue-500/20" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
+                                                                {/* Progress Circle */}
+                                                                <path className="text-blue-500 transition-all duration-1000 ease-out" strokeDasharray={`${data.completion}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
+                                                            </svg>
+                                                            <span className="absolute text-[10px] font-bold">{data.completion.toFixed(0)}%</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-2xl font-bold">{data.completion.toFixed(0)}%</span>
+                                                            <p className="text-xs text-muted-foreground">Milestones Completed</p>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <div className="space-y-1 text-right">
-                                                    <p className="text-sm font-medium text-muted-foreground">Completion Estimate</p>
-                                                    <span className="text-xl font-bold">85%</span>
+                                                <div className="text-right">
+                                                    <Button variant="outline" size="sm" asChild>
+                                                        <a href="#" onClick={() => setActiveTab('timeline')}>View Timeline</a>
+                                                    </Button>
                                                 </div>
                                             </div>
-                                            <div className="space-y-2">
+
+                                            <div className="space-y-3">
                                                 <div className="flex justify-between text-sm">
-                                                    <span>Progress</span>
-                                                    <span className="text-muted-foreground">Budget Usage: 72%</span>
+                                                    <span>Overall Progress</span>
+                                                    <span className="text-muted-foreground">{data.milestones.filter(m => m.status === 'completed').length}/{data.milestones.length} Milestones</span>
                                                 </div>
-                                                <div className="h-2 w-full rounded-full bg-secondary">
-                                                    <div className="h-2 w-[85%] rounded-full bg-primary" />
-                                                </div>
+                                                <Progress value={data.completion} className="h-2 bg-secondary" indicatorClassName="bg-gradient-to-r from-blue-500 to-blue-400" />
                                             </div>
-                                            <div className="rounded-md bg-muted/50 p-4">
-                                                <div className="flex items-start gap-4">
-                                                    <Clock className="mt-1 h-5 w-5 text-blue-500" />
+
+                                            {data.nextMilestone ? (
+                                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 flex items-start gap-4">
+                                                    <div className="p-2 bg-blue-500/10 rounded-full">
+                                                        <Calendar className="h-5 w-5 text-blue-500" />
+                                                    </div>
                                                     <div>
-                                                        <p className="font-semibold text-sm">Next Milestone</p>
-                                                        <p className="text-sm text-muted-foreground">Foundation Inspection - Due in 3 days</p>
+                                                        <p className="font-semibold text-sm text-blue-500">Next Milestone</p>
+                                                        <h4 className="font-bold text-lg">{data.nextMilestone.title}</h4>
+                                                        <p className="text-sm text-muted-foreground">
+                                                            Due in {differenceInDays(new Date(data.nextMilestone.start_date), new Date())} days
+                                                            <span className="mx-2">•</span>
+                                                            {new Date(data.nextMilestone.start_date).toLocaleDateString()}
+                                                        </p>
                                                     </div>
                                                 </div>
-                                            </div>
+                                            ) : (
+                                                <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-center">
+                                                    <p className="text-zinc-500 text-sm">{data.milestones.length > 0 ? "All milestones completed!" : "No upcoming milestones."}</p>
+                                                    <Button variant="link" onClick={() => setActiveTab('timeline')} className="text-blue-500 h-auto p-0">Manage milestones</Button>
+                                                </div>
+                                            )}
                                         </div>
                                     </CardContent>
                                 </Card>
@@ -176,9 +286,6 @@ export function ProjectDetailsClient({ project, documents, latestDocs, userId, i
                                                         <div className="ml-2 space-y-1 w-full min-w-0">
                                                             <p className="text-sm font-medium leading-none truncate">{doc.title}</p>
                                                             <p className="text-xs text-muted-foreground capitalize">{doc.type}</p>
-                                                            {doc.description && (
-                                                                <p className="text-xs text-zinc-500 line-clamp-1">{doc.description.replace(/\[Date:.*?\]\n?/, '')}</p>
-                                                            )}
                                                         </div>
                                                         <div className="ml-auto font-medium text-xs text-muted-foreground whitespace-nowrap pl-2">
                                                             {formatDistanceToNow(new Date(doc.created_at))} ago
@@ -221,6 +328,20 @@ export function ProjectDetailsClient({ project, documents, latestDocs, userId, i
                             transition={{ duration: 0.2 }}
                         >
                             <DocumentTable documents={documents || []} />
+                        </motion.div>
+                    )}
+
+                    {activeTab === 'budget' && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.2 }}
+                        >
+                            <BudgetManager
+                                projectId={project.id}
+                                initialBudget={data.budget}
+                                initialExpenses={data.expenses}
+                            />
                         </motion.div>
                     )}
 
